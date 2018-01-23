@@ -627,7 +627,7 @@ func TestAllTransactionFields(t *testing.T) {
 	tx := &TransactionRequest{
 		Type:    "sale",
 		Amount:  amount,
-		OrderId: "my_custom_order",
+		OrderId: "my_custo _order",
 		CreditCard: &CreditCard{
 			Number:         testCreditCards["visa"].Number,
 			ExpirationDate: "05/14",
