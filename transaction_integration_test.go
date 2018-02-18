@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -122,6 +123,79 @@ func TestTransactionSearch(t *testing.T) {
 	if x := tx.Customer.FirstName; x != name0 {
 		t.Log(name0)
 		t.Fatal(x)
+	}
+}
+
+func TestTransactionSearchPagination(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	txg := testGateway.Transaction()
+
+	const transactionCount = 51
+	transactionIDs := map[string]bool{}
+	prefix := "PaginationTest-" + testhelpers.RandomString()
+	for i := 0; i < transactionCount; i++ {
+		unique := testhelpers.RandomString()
+		tx, err := txg.Create(ctx, &TransactionRequest{
+			Type:   "sale",
+			Amount: randomAmount(),
+			Customer: &Customer{
+				FirstName: prefix + unique,
+			},
+			CreditCard: &CreditCard{
+				Number:         testCreditCards["visa"].Number,
+				ExpirationDate: "05/14",
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		transactionIDs[tx.Id] = true
+	}
+
+	t.Logf("transactionIDs = %v", transactionIDs)
+
+	query := new(SearchQuery)
+	query.AddTextField("customer-first-name").StartsWith = prefix
+
+	results, err := txg.Search(ctx, query)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("results.TotalItems = %v", results.TotalItems)
+	t.Logf("results.TotalIDs = %v", results.TotalIDs)
+	t.Logf("results.PageSize = %v", results.PageSize)
+
+	if results.TotalItems != transactionCount {
+		t.Fatalf("results.TotalItems = %v, want %v", results.TotalItems, transactionCount)
+	}
+
+	for {
+		for _, tx := range results.Transactions {
+			if firstName := tx.Customer.FirstName; !strings.HasPrefix(firstName, prefix) {
+				t.Fatalf("tx.Customer.FirstName = %q, want prefix of %q", firstName, prefix)
+			}
+			if transactionIDs[tx.Id] {
+				delete(transactionIDs, tx.Id)
+			} else {
+				t.Fatalf("tx.Id = %q, not expected", tx.Id)
+			}
+		}
+
+		results, err = txg.SearchNext(ctx, results)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if results == nil {
+			break
+		}
+	}
+
+	if len(transactionIDs) > 0 {
+		t.Fatalf("transactions not returned = %v", transactionIDs)
 	}
 }
 

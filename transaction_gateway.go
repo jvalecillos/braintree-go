@@ -153,18 +153,93 @@ func (g *TransactionGateway) Find(ctx context.Context, id string) (*Transaction,
 	return nil, &invalidResponseError{resp}
 }
 
-// Search finds all transactions matching the search query.
+// Search finds transactions matching the search query, returning the first
+// page of results. Use SearchNext to get subsequent pages.
 func (g *TransactionGateway) Search(ctx context.Context, query *SearchQuery) (*TransactionSearchResult, error) {
-	resp, err := g.execute(ctx, "POST", "transactions/advanced_search", query)
+	searchResult, err := g.fetchTransactionIDs(ctx, query)
 	if err != nil {
 		return nil, err
 	}
-	var v TransactionSearchResult
+
+	pageSize := searchResult.PageSize
+	ids := searchResult.IDs.Item
+
+	endOffset := pageSize
+	if endOffset > len(ids) {
+		endOffset = len(ids)
+	}
+
+	firstPageQuery := query.shallowCopy()
+	firstPageQuery.AddMultiField("ids").Items = ids[:endOffset]
+	firstPageTransactions, err := g.fetchTransactions(ctx, firstPageQuery)
+
+	firstPageResult := &TransactionSearchResult{
+		TotalItems:        len(ids),
+		TotalIDs:          ids,
+		CurrentPageNumber: 1,
+		PageSize:          pageSize,
+		Transactions:      firstPageTransactions,
+		searchQuery:       query,
+	}
+
+	return firstPageResult, err
+}
+
+// SearchNext finds the next page of transactions matching the search query.
+// Use Search to start a search and get the first page of results.
+func (g *TransactionGateway) SearchNext(ctx context.Context, result *TransactionSearchResult) (*TransactionSearchResult, error) {
+	startOffset := result.CurrentPageNumber * result.PageSize
+	endOffset := startOffset + result.PageSize
+	if endOffset > len(result.TotalIDs) {
+		endOffset = len(result.TotalIDs)
+	}
+	if startOffset >= endOffset {
+		return nil, nil
+	}
+
+	nextPageQuery := result.searchQuery.shallowCopy()
+	nextPageQuery.AddMultiField("ids").Items = result.TotalIDs[startOffset:endOffset]
+	nextPageTransactions, err := g.fetchTransactions(ctx, nextPageQuery)
+
+	nextPageResult := &TransactionSearchResult{
+		TotalItems:        result.TotalItems,
+		TotalIDs:          result.TotalIDs,
+		CurrentPageNumber: result.CurrentPageNumber + 1,
+		PageSize:          result.PageSize,
+		Transactions:      nextPageTransactions,
+		searchQuery:       result.searchQuery,
+	}
+
+	return nextPageResult, err
+}
+
+func (g *TransactionGateway) fetchTransactionIDs(ctx context.Context, query *SearchQuery) (*searchResults, error) {
+	resp, err := g.execute(ctx, "POST", "transactions/advanced_search_ids", query)
+	if err != nil {
+		return nil, err
+	}
+	var v searchResults
 	err = xml.Unmarshal(resp.Body, &v)
 	if err != nil {
 		return nil, err
 	}
 	return &v, err
+}
+
+func (g *TransactionGateway) fetchTransactions(ctx context.Context, query *SearchQuery) ([]*Transaction, error) {
+	resp, err := g.execute(ctx, "POST", "transactions/advanced_search", query)
+	if err != nil {
+		return nil, err
+	}
+	var v struct {
+		XMLName      string         `xml:"credit-card-transactions"`
+		Transactions []*Transaction `xml:"transaction"`
+	}
+	err = xml.Unmarshal(resp.Body, &v)
+	if err != nil {
+		return nil, err
+	}
+	return v.Transactions, err
 }
 
 type testOperationPerformedInProductionError struct {
