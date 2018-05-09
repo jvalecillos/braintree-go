@@ -1021,17 +1021,16 @@ func TestSubscriptionTransactions(t *testing.T) {
 // status. Then you can try to charge an amount lower than 2000 which
 // then should work when we retry the charge.
 func TestSubscriptionRetryCharge(t *testing.T) {
-	t.Skip("Needs manual setup")
+	//t.Skip("Needs manual setup")
 	t.Parallel()
 
 	ctx := context.Background()
 	reqInvalidID := SubscriptionTransactionRequest{
 		SubscriptionID: "nonExisting1223",
 		Amount:         NewDecimal(1000, 2),
-		Options: TransactionOptions{
+		Options: &SubscriptionTransactionOptionsRequest{
 			SubmitForSettlement: true,
 		},
-		Type: "sale",
 	}
 	err := testGateway.Subscription().RetryCharge(ctx, &reqInvalidID)
 	if err.Error() != "Subscription ID is invalid." {
@@ -1041,10 +1040,9 @@ func TestSubscriptionRetryCharge(t *testing.T) {
 	req := SubscriptionTransactionRequest{
 		SubscriptionID: "replaceWithIDofTestPastDueSubscription",
 		Amount:         NewDecimal(1000, 2),
-		Options: TransactionOptions{
+		Options: &SubscriptionTransactionOptionsRequest{
 			SubmitForSettlement: true,
 		},
-		Type: "sale",
 	}
 	err = testGateway.Subscription().RetryCharge(ctx, &req)
 	if err != nil {
